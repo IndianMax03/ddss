@@ -1,6 +1,6 @@
 DO $$
 DECLARE
-    t_name TEXT := 'characters';
+    t_name TEXT := '"NOPAIN"';
     s_name TEXT := 's333057';
     no_header TEXT := 'No.';
     no_delimeter TEXT := '---';
@@ -27,6 +27,12 @@ DECLARE
         where pg_class.relname = t_name and pg_namespace.nspname = s_name and pg_attribute.attnum > 0
     );
 BEGIN
+
+    IF LEFT(t_name, 1) = '"' and RIGHT(t_name, 1) = '"' THEN
+        t_name := BTRIM(t_name, '"');
+    ELSE
+        t_name := LOWER(t_name);
+    END IF;
 
     RAISE NOTICE '';
     RAISE NOTICE 'table -> %', t_name;

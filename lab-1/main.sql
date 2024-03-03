@@ -1,13 +1,14 @@
 DO $$
 DECLARE
-    t_name TEXT := '"NOPAIN"';
-    s_name TEXT := 's333057';
+    t_name TEXT := 'link';
+    s_name TEXT := 'public';
     no_header TEXT := 'No.';
     no_delimeter TEXT := '---';
     name_header TEXT := 'Имя столбца';
     name_delimeter TEXT := '-----------';
     attr_header TEXT := 'Атрибуты';
     attr_delimeter TEXT := '------------------------------------------------------';
+    prev_attr TEXT := '';
     pointer CURSOR FOR (
         SELECT
             pg_attribute.attnum,
@@ -44,11 +45,18 @@ BEGIN
 
     FOR c IN pointer
     LOOP
-        RAISE NOTICE '% | % | Type: %', RPAD(c.attnum::TEXT, 3, ' '), RPAD(c.master_att, 11, ' '), c.typname;
-        IF c.contype = 'f' THEN
+        IF prev_attr <> c.master_att THEN
+            IF prev_attr <> '' THEN
+                RAISE NOTICE '% | % | %', no_delimeter, name_delimeter, attr_delimeter;
+            END IF;
+            RAISE NOTICE '% | % | Type: %', RPAD(c.attnum::TEXT, 3, ' '), RPAD(c.master_att, 11, ' '), c.typname;
+            IF c.contype = 'f' THEN
+                RAISE NOTICE '%|%| Constr: "%" References %(%)', RPAD('', 4, ' '),  RPAD('', 13, ' '), c.master_att, c.relname, c.slave_att;
+            END IF;
+        ELSE
             RAISE NOTICE '%|%| Constr: "%" References %(%)', RPAD('', 4, ' '),  RPAD('', 13, ' '), c.master_att, c.relname, c.slave_att;
         END IF;
-        RAISE NOTICE '% | % | %', no_delimeter, name_delimeter, attr_delimeter;
+        prev_attr = c.master_att;
     END LOOP;
     RAISE NOTICE '';
 

@@ -321,29 +321,43 @@ postgres=# CREATE DATABASE crazyprog WITH TEMPLATE=template0;
 CREATE DATABASE
 ```
 
-Создадим таблицы:
+Установим табличное пространство для временных объектов:
+
+```sql
+crazyprog=# SET default_tablespace = tmp1;
+SET
+```
+
+Создадим таблицу фильмов:
 
 ```sql
 crazyprog=# create table films(id serial primary key, name text, description text);
 CREATE TABLE
+```
+
+Сменим табличное пространство временных объектов:
+
+```sql
+crazyprog=# SET default_tablespace = tmp2;
+SET
+```
+
+Создадим оставшиеся таблицы
+
+```sql
 crazyprog=# create table reviews(id serial primary key, post text, rating integer);
 CREATE TABLE
-```
-
-Первым табличным пространством воспользуемся для хранения индексов:
-
-```sql
-crazyprog=# create index film_name_index on films using hash(name) tablespace tmp1;
-CREATE INDEX
-crazyprog=# create index review_id_index on reviews using btree(id) tablespace tmp1;
-CREATE INDEX
-```
-
-А вторым для хранения таблиц-ассоциаций
-
-```sql
 crazyprog=# create table film_review(film_id integer, review_id integer, primary key(film_id, review_id)) tablespace tmp2;
 CREATE TABLE
+```
+
+Создадим индексы:
+
+```sql
+crazyprog=# create index film_name_index on films using hash(name);
+CREATE INDEX
+crazyprog=# create index review_id_index on reviews using btree(id);
+CREATE INDEX
 ```
 
 Создадим новую роль:
@@ -420,8 +434,8 @@ psql (14.2)
 crazyprog=# select * from films;
  id |     name     |             description              
 ----+--------------+--------------------------------------
-  3 | человек паук | фильм про человека паука в скафандре
-  4 | бедмен       | фильм про бедмена в бидоне
+  1 | человек паук | фильм про человека паука в скафандре
+  2 | бедмен       | фильм про бедмена в бидоне
 (2 строки)
 ```
 
@@ -432,7 +446,7 @@ crazyprog=# select * from films;
 crazyprog=# SELECT pg_tablespace.spcname AS tablespace_name, 
        pg_class.relname AS object_name
 FROM pg_class
-LEFT JOIN pg_tablespace ON pg_class.reltablespace = pg_tablespace.oid
+JOIN pg_tablespace ON pg_class.reltablespace = pg_tablespace.oid
 ORDER BY tablespace_name, object_name;
  tablespace_name |               object_name               
 -----------------+-----------------------------------------
@@ -479,8 +493,17 @@ ORDER BY tablespace_name, object_name;
  pg_global       | pg_toast_6000_index
  pg_global       | pg_toast_6100
  pg_global       | pg_toast_6100_index
- tmp1            | film_name_index
- tmp1            | review_id_index
+ tmp1            | films
+ tmp1            | films_pkey
+ tmp1            | pg_toast_16471
+ tmp1            | pg_toast_16471_index
+ tmp2            | film_name_index
  tmp2            | film_review
-(46 строк)
+ tmp2            | film_review_pkey
+ tmp2            | pg_toast_16480
+ tmp2            | pg_toast_16480_index
+ tmp2            | review_id_index
+ tmp2            | reviews
+ tmp2            | reviews_pkey
+(55 строк)
 ```

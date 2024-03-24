@@ -67,7 +67,7 @@ CREATE ROLE <name> WITH
     | USER <role_name> [, ...]                  -- == ROLE
 ```
 
-P.S. По умолчанию `NOSUPERUSER`, `NOCREATEDB`, и т.д.
+P.S. По умолчанию `INHERIT`, `NOSUPERUSER`, `NOCREATEDB`, `NO...` и т.д.
 
 ### ALTER ROLE -- изменить параметры существующей роли
 

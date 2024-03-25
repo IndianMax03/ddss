@@ -1,4 +1,4 @@
 ### Подготовка к рубежке
 
 - [Инфа по ролям](./roles.md)
-- [Инфа по каталогам](./information_schema)
+- [Инфа по information_schema](./information_schema)

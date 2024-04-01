@@ -314,6 +314,34 @@ postgres=# \db
 (4 строки)
 ```
 
+Определим временные табличные пространства для всех постоянных сессий:
+
+```text
+postgresql.conf:
+temp_tablespaces = 'tmp1, tmp2'         # a list of tablespace names, '' uses
+                                        # only default tablespace
+```
+
+Для применения опции выполним:
+
+```sql
+postgres=# SELECT pg_reload_conf();
+ pg_reload_conf 
+----------------
+ t
+(1 строка)
+```
+
+Убедимся в том, что временные табличные пространства установлены:
+
+```sql
+postgres=# SHOW temp_tablespaces;
+ temp_tablespaces 
+------------------
+ tmp1, tmp2
+(1 строка)
+```
+
 На основании `template0` создадим базу данных `crazyprog`
 
 ```sql
@@ -321,43 +349,22 @@ postgres=# CREATE DATABASE crazyprog WITH TEMPLATE=template0;
 CREATE DATABASE
 ```
 
-Установим табличное пространство для временных объектов:
+Создадим таблицы фильмов и отзывов к фильмам:
 
 ```sql
-crazyprog=# SET default_tablespace = tmp1;
-SET
-```
-
-Создадим таблицу фильмов:
-
-```sql
-crazyprog=# create table films(id serial primary key, name text, description text);
+crazyprog=# CREATE TABLE films(
+    id serial PRIMARY KEY,
+    name text,
+    description text
+);
 CREATE TABLE
-```
-
-Сменим табличное пространство временных объектов:
-
-```sql
-crazyprog=# SET default_tablespace = tmp2;
-SET
-```
-
-Создадим оставшиеся таблицы
-
-```sql
-crazyprog=# create table reviews(id serial primary key, post text, rating integer);
+crazyprog=# CREATE TABLE reviews(
+    id serial PRIMARY KEY,
+    film_id integer REFERENCES films(id),
+    post text,
+    rating integer
+);
 CREATE TABLE
-crazyprog=# create table film_review(film_id integer, review_id integer, primary key(film_id, review_id)) tablespace tmp2;
-CREATE TABLE
-```
-
-Создадим индексы:
-
-```sql
-crazyprog=# create index film_name_index on films using hash(name);
-CREATE INDEX
-crazyprog=# create index review_id_index on reviews using btree(id);
-CREATE INDEX
 ```
 
 Создадим новую роль:
@@ -386,8 +393,6 @@ crazyprog=# grant insert on films to max;
 GRANT
 crazyprog=# grant insert on reviews to max;
 GRANT
-crazyprog=# grant insert on film_review to max;
-GRANT
 crazyprog=# grant usage, select on sequence films_id_seq to max;
 GRANT
 crazyprog=# grant usage, select on sequence reviews_id_seq to max;
@@ -397,16 +402,13 @@ GRANT
 Попробуем выполнить пару вставок:
 
 ```sql
-[postgres0@pg103 ~]$ psql -p 9004 -d crazyprog -U max
-Пароль пользователя max: 
-psql (14.2)
-Введите "help", чтобы получить справку.
+crazyprog=> insert into films values (nextval('films_id_seq'), 'человек паук', 'фильм про человека паука в скафандре');
+insert into reviews values (nextval('reviews_id_seq'), currval('films_id_seq'), 'прекрасный фильм мне очень даже понравился скофандор', 5);
+insert into reviews values (nextval('reviews_id_seq'), currval('films_id_seq'), 'блин мне очень не понравился скофандор', 3);
 
-crazyprog=> \i ~/fill.sql 
-INSERT 0 1
-INSERT 0 1
-INSERT 0 1
-INSERT 0 1
+insert into films values (nextval('films_id_seq'), 'бедмен', 'фильм про бедмена в бидоне');
+insert into reviews values (nextval('reviews_id_seq'), currval('films_id_seq'), 'бидоны улет!', 5);
+insert into reviews values (nextval('reviews_id_seq'), currval('films_id_seq'), 'мама не разрешила сходить', 1);
 INSERT 0 1
 INSERT 0 1
 INSERT 0 1
@@ -437,6 +439,46 @@ crazyprog=# select * from films;
   1 | человек паук | фильм про человека паука в скафандре
   2 | бедмен       | фильм про бедмена в бидоне
 (2 строки)
+```
+
+Представим сценарий: суперпользователь решил просмотреть средний рейтинг фильмов и отзывы от худшего к лучшему.
+
+Он создаст временные таблицы:
+
+```sql
+crazyprog=# CREATE TEMPORARY TABLE top_films AS
+SELECT f.name AS film_name, AVG(r.rating) AS avg_rating
+FROM films f
+JOIN reviews r ON f.id = r.film_id
+GROUP BY f.id, f.name
+ORDER BY avg_rating DESC;
+SELECT 2
+crazyprog=# CREATE TEMPORARY TABLE bad_reviews AS
+SELECT f.name AS film_name, r.post AS review_comment, r.rating AS review_rating
+FROM films f
+JOIN reviews r ON f.id = r.film_id
+ORDER BY r.rating;
+SELECT 4
+```
+
+Теперь он может ими воспользоваться:
+
+```sql
+crazyprog=# SELECT * FROM top_films;
+  film_name   |     avg_rating     
+--------------+--------------------
+ человек паук | 4.0000000000000000
+ бедмен       | 3.0000000000000000
+(2 строки)
+
+crazyprog=# SELECT * FROM bad_reviews;
+  film_name   |                    review_comment                    | review_rating 
+--------------+------------------------------------------------------+---------------
+ бедмен       | мама не разрешила сходить                            |             1
+ человек паук | блин мне очень не понравился скофандор               |             3
+ человек паук | прекрасный фильм мне очень даже понравился скофандор |             5
+ бедмен       | бидоны улет!                                         |             5
+(4 строки)
 ```
 
 Выведем список всех табличных пространств кластера и содержащиеся
@@ -493,17 +535,73 @@ ORDER BY tablespace_name, object_name;
  pg_global       | pg_toast_6000_index
  pg_global       | pg_toast_6100
  pg_global       | pg_toast_6100_index
- tmp1            | films
- tmp1            | films_pkey
- tmp1            | pg_toast_16471
- tmp1            | pg_toast_16471_index
- tmp2            | film_name_index
- tmp2            | film_review
- tmp2            | film_review_pkey
- tmp2            | pg_toast_16480
- tmp2            | pg_toast_16480_index
- tmp2            | review_id_index
- tmp2            | reviews
- tmp2            | reviews_pkey
-(55 строк)
+ tmp1            | bad_reviews
+ tmp1            | pg_toast_16769
+ tmp1            | pg_toast_16769_index
+ tmp1            | pg_toast_16774
+ tmp1            | pg_toast_16774_index
+ tmp1            | top_films
+(49 строк)
+```
+
+Для новой сессии временные таблицы пропадут, что позволит сэкономить память, не удерживая данные таблицы в ней, а используя их исключительно временно:
+
+```sql
+crazyprog=# \q
+[postgres0@pg103 ~]$ psql -p 9004 -d crazyprog -U postgres0
+Пароль пользователя postgres0: 
+psql (14.2)
+Введите "help", чтобы получить справку.
+
+crazyprog=# SELECT pg_tablespace.spcname AS tablespace_name, 
+       pg_class.relname AS object_name
+FROM pg_class
+JOIN pg_tablespace ON pg_class.reltablespace = pg_tablespace.oid
+ORDER BY tablespace_name, object_name;
+ tablespace_name |               object_name               
+-----------------+-----------------------------------------
+ pg_global       | pg_auth_members
+ pg_global       | pg_auth_members_member_role_index
+ pg_global       | pg_auth_members_role_member_index
+ pg_global       | pg_authid
+ pg_global       | pg_authid_oid_index
+ pg_global       | pg_authid_rolname_index
+ pg_global       | pg_database
+ pg_global       | pg_database_datname_index
+ pg_global       | pg_database_oid_index
+ pg_global       | pg_db_role_setting
+ pg_global       | pg_db_role_setting_databaseid_rol_index
+ pg_global       | pg_replication_origin
+ pg_global       | pg_replication_origin_roiident_index
+ pg_global       | pg_replication_origin_roname_index
+ pg_global       | pg_shdepend
+ pg_global       | pg_shdepend_depender_index
+ pg_global       | pg_shdepend_reference_index
+ pg_global       | pg_shdescription
+ pg_global       | pg_shdescription_o_c_index
+ pg_global       | pg_shseclabel
+ pg_global       | pg_shseclabel_object_index
+ pg_global       | pg_subscription
+ pg_global       | pg_subscription_oid_index
+ pg_global       | pg_subscription_subname_index
+ pg_global       | pg_tablespace
+ pg_global       | pg_tablespace_oid_index
+ pg_global       | pg_tablespace_spcname_index
+ pg_global       | pg_toast_1213
+ pg_global       | pg_toast_1213_index
+ pg_global       | pg_toast_1260
+ pg_global       | pg_toast_1260_index
+ pg_global       | pg_toast_1262
+ pg_global       | pg_toast_1262_index
+ pg_global       | pg_toast_2396
+ pg_global       | pg_toast_2396_index
+ pg_global       | pg_toast_2964
+ pg_global       | pg_toast_2964_index
+ pg_global       | pg_toast_3592
+ pg_global       | pg_toast_3592_index
+ pg_global       | pg_toast_6000
+ pg_global       | pg_toast_6000_index
+ pg_global       | pg_toast_6100
+ pg_global       | pg_toast_6100_index
+(43 строки)
 ```
